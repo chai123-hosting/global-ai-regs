@@ -334,15 +334,14 @@
             throw new Error("Failed to retrieve session information");
           }
 
-          const currentSession =
-            sessionData.sessions.find((session) => !session.sine_die) ||
-            sessionData.sessions[0];
+          // Sort by session_id descending to get the most recent session
+          const currentSession = sessionData.sessions.sort((a, b) => b.session_id - a.session_id)[0];
 
           console.log("Current session:", currentSession);
 
-          // Now, perform the search using the session ID
+          // Now, perform the search using the session ID (without year restriction)
           const query = encodeURIComponent(searchTerms.join(" OR "));
-          const searchUrl = `https://api.legiscan.com/?key=${apiKey}&op=getSearch&state=${stateAbbr}&query=${query}&year=${currentSession.year_start}&session=${currentSession.session_id}&field=title,description`;
+          const searchUrl = `https://api.legiscan.com/?key=${apiKey}&op=getSearch&state=${stateAbbr}&query=${query}&session=${currentSession.session_id}`;
 
           const searchResponse = await fetch(searchUrl);
           const searchData = await searchResponse.json();
