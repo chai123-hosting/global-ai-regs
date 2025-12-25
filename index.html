@@ -862,34 +862,32 @@
               console.log("Full API Response:", data);
               console.log("Type of data:", typeof data);
               console.log("Is array:", Array.isArray(data));
+              console.log("Has 'results' property:", data && data.results !== undefined);
+              console.log("Has 'count' property:", data && data.count !== undefined);
               
               if (Array.isArray(data) && data.length > 0) {
                 console.log("Array length:", data.length);
                 console.log("First item:", data[0]);
                 console.log("First item keys:", Object.keys(data[0]));
-                console.log("First item has 'jurisdiction'?:", data[0].jurisdiction);
-                console.log("First item has 'implementing_jurisdiction'?:", data[0].implementing_jurisdiction);
-                console.log("First item has 'country'?:", data[0].country);
-              } else if (typeof data === 'object' && data !== null) {
-                console.log("Data keys:", Object.keys(data));
-                if (data.results) {
-                  console.log("data.results exists, length:", data.results.length);
-                  if (data.results.length > 0) {
-                    console.log("First result:", data.results[0]);
-                    console.log("First result keys:", Object.keys(data.results[0]));
-                  }
+              } else if (data && data.results && Array.isArray(data.results)) {
+                console.log("Results array length:", data.results.length);
+                if (data.results.length > 0) {
+                  console.log("First result:", data.results[0]);
+                  console.log("First result keys:", Object.keys(data.results[0]));
                 }
               }
             }
             
-            // Try to handle both array and object responses
+            // Handle both response formats: direct array OR results object
             let results = [];
             if (Array.isArray(data)) {
               results = data;
-              console.log("Using data as array directly");
+              console.log("Using data as direct array, length:", results.length);
             } else if (data && data.results && Array.isArray(data.results)) {
               results = data.results;
-              console.log("Using data.results as array");
+              console.log("Using data.results array, length:", results.length);
+            } else {
+              console.error("Unexpected API response format:", data);
             }
             
             console.log(`Fetched ${results.length} entries at offset ${offset}`);
