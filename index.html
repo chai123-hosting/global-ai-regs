@@ -286,6 +286,9 @@
         '"AI governance"',
       ];
 
+      // Cache for state legislation data
+      const stateDataCache = {};
+
       const isRelevant = (bill) => {
         const text = (
           bill.title +
@@ -313,6 +316,14 @@
       };
 
       const fetchLegislation = async (state) => {
+        // Check cache first
+        if (stateDataCache[state]) {
+          console.log(`Using cached data for ${state}`);
+          displayLegislation(state, stateDataCache[state]);
+          document.getElementById("loading").style.display = "none";
+          return;
+        }
+        
         try {
           const apiKey = "57cf1119f6c9ebcb5d542458c87d85e7";
           const stateAbbr = stateNameToAbbreviation[state];
@@ -349,19 +360,39 @@
           console.log("Search data:", searchData);
 
           if (searchData.status === "OK" && searchData.searchresult) {
-            const bills = {};
-            for (const [key, value] of Object.entries(
-              searchData.searchresult
-            )) {
-              if (key !== "summary" && typeof value === "object") {
+            // Extract bill IDs from search results
+            const billEntries = Object.entries(searchData.searchresult)
+              .filter(([key, value]) => key !== "summary" && typeof value === "object");
+            
+            console.log(`Found ${billEntries.length} bills, fetching details in parallel...`);
+            
+            // Fetch all bills in parallel for much faster loading
+            const billPromises = billEntries.map(async ([key, value]) => {
+              try {
                 const billUrl = `https://api.legiscan.com/?key=${apiKey}&op=getBill&id=${value.bill_id}`;
                 const billResponse = await fetch(billUrl);
                 const billData = await billResponse.json();
                 if (billData.status === "OK") {
-                  bills[key] = billData.bill;
+                  return { key, bill: billData.bill };
                 }
+                return null;
+              } catch (error) {
+                console.error(`Error fetching bill ${value.bill_id}:`, error);
+                return null;
               }
-            }
+            });
+            
+            // Wait for all bills to be fetched
+            const billResults = await Promise.all(billPromises);
+            
+            // Convert to bills object
+            const bills = {};
+            billResults.forEach(result => {
+              if (result) {
+                bills[result.key] = result.bill;
+              }
+            });
+            
             console.log("Bills data:", bills);
 
             const relevantBills = Object.values(bills)
@@ -384,6 +415,9 @@
               }))
             );
 
+            // Cache the results
+            stateDataCache[state] = relevantBills;
+            
             displayLegislation(state, relevantBills);
           } else {
             console.log("No search results found");
