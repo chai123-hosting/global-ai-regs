@@ -314,7 +314,7 @@
 
       const fetchLegislation = async (state) => {
         try {
-          const apiKey = "57cf1119f6c9ebcb5d542458c87d85e7"; // Replace with your LegiScan API key
+          const apiKey = "57cf1119f6c9ebcb5d542458c87d85e7";
           const stateAbbr = stateNameToAbbreviation[state];
 
           console.log(`Fetching legislation for ${state} (${stateAbbr})`);
@@ -666,6 +666,7 @@
           container.appendChild(element);
         });
       }
+      
       function createTimelineHTML(group) {
         if (group.length <= 1) {
           return ""; // Don't create a timeline for a single event
@@ -758,16 +759,166 @@
         timelineHTML += "</div>";
         return timelineHTML;
       }
-      const worldwideLegislationData = []; // This will be populated with your Excel data
+      
+      // Worldwide legislation data and loading
+      const worldwideLegislationData = [];
+      let isLoadingWorldwideData = false;
 
       async function loadWorldwideData() {
+        if (isLoadingWorldwideData || worldwideLegislationData.length > 0) {
+          return; // Prevent duplicate loading
+        }
+        
+        isLoadingWorldwideData = true;
+        const container = document.getElementById("worldwide-container");
+        container.innerHTML = "<p>Loading worldwide AI legislation data...</p>";
+        
         try {
-          const response = await fetch("worldwide_legislation.json");
-          const data = await response.json();
-          worldwideLegislationData.push(...data);
-          // Don't call displayWorldwideLegislation() here
+          const apiKey = "198f8bd50e6f05610cd1088e4f3a4b387e375ce8";
+          const allData = [];
+          let offset = 0;
+          const limit = 100; // Reduced from 1000 for testing - adjust as needed
+          let hasMoreData = true;
+          let maxFetches = 10; // Limit to 10 fetches (1000 total entries max)
+          let fetchCount = 0;
+          
+          // Fetch data with pagination
+          while (hasMoreData && fetchCount < maxFetches) {
+            console.log(`Fetching data at offset ${offset}...`);
+            
+            const requestBody = {
+              limit: limit,
+              offset: offset
+            };
+            
+            console.log("Sending request body:", JSON.stringify(requestBody, null, 2));
+            
+            const response = await fetch("https://api.globaltradealert.org/api/v1/dpa/events/", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `APIKey ${apiKey}`
+              },
+              body: JSON.stringify(requestBody)
+            });
+            
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error("API Error Response:", errorText);
+              
+              // Check if it's a rate limit error
+              if (response.status === 403 && errorText.includes("Rate limit")) {
+                throw new Error(`Rate limit reached. The API allows a maximum of 1000 entries per 24 hours. Please try again tomorrow or contact the API provider for increased limits.`);
+              }
+              
+              throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+            }
+            
+            const data = await response.json();
+            
+            // Debug: Log full API response structure
+            if (offset === 0) {
+              console.log("Full API Response:", data);
+              console.log("Response keys:", Object.keys(data));
+              if (data.results) {
+                console.log("Results array length:", data.results.length);
+                if (data.results.length > 0) {
+                  console.log("First result keys:", Object.keys(data.results[0]));
+                  console.log("First result example:", data.results[0]);
+                }
+              }
+            }
+            
+            console.log(`Fetched ${data.results?.length || 0} entries at offset ${offset}`);
+            
+            if (data.results && data.results.length > 0) {
+              allData.push(...data.results);
+              offset += limit;
+              fetchCount++;
+              
+              // Check if we've fetched all available data
+              if (data.results.length < limit) {
+                hasMoreData = false;
+              }
+            } else {
+              hasMoreData = false;
+            }
+          }
+          
+          console.log(`Total entries fetched: ${allData.length}`);
+          
+          // Log a sample of the raw data to see its structure
+          if (allData.length > 0) {
+            console.log("Sample raw data items:", allData.slice(0, 3));
+          }
+          
+          // Filter for AI-related content
+          const aiRelatedData = allData.filter(item => {
+            const searchText = (
+              (item.intervention_title || '') + ' ' +
+              (item.event_description || '') + ' ' +
+              (item.technology_area || '') + ' ' +
+              (item.intervention_type || '')
+            ).toLowerCase();
+            
+            const aiTerms = [
+              'artificial intelligence',
+              'machine learning',
+              'ai ',
+              ' ai',
+              'neural network',
+              'deep learning',
+              'generative ai',
+              'algorithmic',
+              'automation',
+              'ai-powered',
+              'ai system',
+              'ai model'
+            ];
+            
+            const isAiRelated = aiTerms.some(term => searchText.includes(term));
+            
+            // Log first few items to see what's being filtered
+            if (allData.indexOf(item) < 5) {
+              console.log(`Item ${allData.indexOf(item)} - AI Related: ${isAiRelated}`, {
+                title: item.intervention_title,
+                searchText: searchText.substring(0, 200)
+              });
+            }
+            
+            return isAiRelated;
+          });
+          
+          console.log(`AI-related entries: ${aiRelatedData.length}`);
+          console.log("Sample AI-related data:", aiRelatedData.slice(0, 3));
+          
+          // Transform the API response to match your data structure
+          const transformedData = aiRelatedData.map(item => ({
+            country: item.implementing_jurisdiction || item.country || 'Unknown',
+            interventionName: item.intervention_title || 'Untitled Intervention',
+            interventionStatus: item.intervention_status || 'Unknown Status',
+            eventDate: item.date || item.event_date || 'Unknown Date',
+            eventDescription: item.event_description || 'No description available',
+            actionType: item.action_type || 'Unknown Action',
+            SourceURL: item.source_url || item.url || '#'
+          }));
+          
+          console.log("Transformed data sample:", transformedData.slice(0, 3));
+          console.log("Countries found:", [...new Set(transformedData.map(d => d.country))].slice(0, 20));
+          
+          worldwideLegislationData.push(...transformedData);
+          
+          container.innerHTML = `
+            <p>Loaded ${worldwideLegislationData.length} AI-related regulations from around the world.</p>
+            <p>Click on a country to view specific regulations.</p>
+          `;
+          
         } catch (error) {
           console.error("Error loading worldwide legislation data:", error);
+          // Silently fail - don't show anything to the user
+          container.innerHTML = "";
+        } finally {
+          isLoadingWorldwideData = false;
         }
       }
 
@@ -799,8 +950,9 @@
           }
         });
 
-      // Initial load
-      loadWorldwideData();
+      // Initial load - preload worldwide data
+      // You can comment this out if you only want to load when user clicks Global tab
+      // loadWorldwideData();
     </script>
   </body>
 </html>
