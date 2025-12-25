@@ -640,7 +640,7 @@
       <h5>${mainItem.interventionName}</h5>
       <p><strong>Status:</strong> ${mainItem.interventionStatus}</p>
       <p><strong>Last Event Date:</strong> ${lastEventDate}</p>
-      <p><strong>Description:</strong> ${combinedDescription}</p>
+      <p><strong>Description:</strong> ${combinedDescription.replace(/\n/g, '<br>')}</p>
       ${timelineHTML}
       <button style="
         display: inline-block;
@@ -771,7 +771,7 @@
         
         isLoadingWorldwideData = true;
         const container = document.getElementById("worldwide-container");
-        container.innerHTML = "<p>Loading worldwide AI legislation data...</p>";
+        container.innerHTML = "<p>Loading worldwide AI legislation data... <span id='load-status'>Connecting to API...</span></p>";
         
         try {
           const apiKey = "198f8bd50e6f05610cd1088e4f3a4b387e375ce8";
@@ -785,6 +785,9 @@
           // Fetch data with pagination
           while (hasMoreData && fetchCount < maxFetches) {
             console.log(`Fetching data at offset ${offset}...`);
+            
+            const statusEl = document.getElementById('load-status');
+            if (statusEl) statusEl.textContent = `Fetching batch ${fetchCount + 1}...`;
             
             const requestBody = {
               limit: limit,
@@ -802,12 +805,16 @@
               body: JSON.stringify(requestBody)
             });
             
+            console.log("Got response, status:", response.status);
+            if (statusEl) statusEl.textContent = `Processing response (status: ${response.status})...`;
+            
             if (!response.ok) {
               const errorText = await response.text();
               console.error("API Error Response:", errorText);
               
               // Check if it's a rate limit error
               if (response.status === 403 && errorText.includes("Rate limit")) {
+                console.error("Rate limit reached - silently failing");
                 throw new Error(`Rate limit reached. The API allows a maximum of 1000 entries per 24 hours. Please try again tomorrow or contact the API provider for increased limits.`);
               }
               
@@ -819,25 +826,47 @@
             // Debug: Log full API response structure
             if (offset === 0) {
               console.log("Full API Response:", data);
-              console.log("Response keys:", Object.keys(data));
-              if (data.results) {
-                console.log("Results array length:", data.results.length);
-                if (data.results.length > 0) {
-                  console.log("First result keys:", Object.keys(data.results[0]));
-                  console.log("First result example:", data.results[0]);
+              console.log("Type of data:", typeof data);
+              console.log("Is array:", Array.isArray(data));
+              
+              if (Array.isArray(data) && data.length > 0) {
+                console.log("Array length:", data.length);
+                console.log("First item:", data[0]);
+                console.log("First item keys:", Object.keys(data[0]));
+                console.log("First item has 'jurisdiction'?:", data[0].jurisdiction);
+                console.log("First item has 'implementing_jurisdiction'?:", data[0].implementing_jurisdiction);
+                console.log("First item has 'country'?:", data[0].country);
+              } else if (typeof data === 'object' && data !== null) {
+                console.log("Data keys:", Object.keys(data));
+                if (data.results) {
+                  console.log("data.results exists, length:", data.results.length);
+                  if (data.results.length > 0) {
+                    console.log("First result:", data.results[0]);
+                    console.log("First result keys:", Object.keys(data.results[0]));
+                  }
                 }
               }
             }
             
-            console.log(`Fetched ${data.results?.length || 0} entries at offset ${offset}`);
+            // Try to handle both array and object responses
+            let results = [];
+            if (Array.isArray(data)) {
+              results = data;
+              console.log("Using data as array directly");
+            } else if (data && data.results && Array.isArray(data.results)) {
+              results = data.results;
+              console.log("Using data.results as array");
+            }
             
-            if (data.results && data.results.length > 0) {
-              allData.push(...data.results);
+            console.log(`Fetched ${results.length} entries at offset ${offset}`);
+            
+            if (results.length > 0) {
+              allData.push(...results);
               offset += limit;
               fetchCount++;
               
               // Check if we've fetched all available data
-              if (data.results.length < limit) {
+              if (results.length < limit) {
                 hasMoreData = false;
               }
             } else {
@@ -855,10 +884,8 @@
           // Filter for AI-related content
           const aiRelatedData = allData.filter(item => {
             const searchText = (
-              (item.intervention_title || '') + ' ' +
-              (item.event_description || '') + ' ' +
-              (item.technology_area || '') + ' ' +
-              (item.intervention_type || '')
+              (item.title || '') + ' ' +
+              (item.description || '')
             ).toLowerCase();
             
             const aiTerms = [
@@ -873,7 +900,8 @@
               'automation',
               'ai-powered',
               'ai system',
-              'ai model'
+              'ai model',
+              'ai act'
             ];
             
             const isAiRelated = aiTerms.some(term => searchText.includes(term));
@@ -881,7 +909,7 @@
             // Log first few items to see what's being filtered
             if (allData.indexOf(item) < 5) {
               console.log(`Item ${allData.indexOf(item)} - AI Related: ${isAiRelated}`, {
-                title: item.intervention_title,
+                title: item.title,
                 searchText: searchText.substring(0, 200)
               });
             }
@@ -893,15 +921,32 @@
           console.log("Sample AI-related data:", aiRelatedData.slice(0, 3));
           
           // Transform the API response to match your data structure
-          const transformedData = aiRelatedData.map(item => ({
-            country: item.implementing_jurisdiction || item.country || 'Unknown',
-            interventionName: item.intervention_title || 'Untitled Intervention',
-            interventionStatus: item.intervention_status || 'Unknown Status',
-            eventDate: item.date || item.event_date || 'Unknown Date',
-            eventDescription: item.event_description || 'No description available',
-            actionType: item.action_type || 'Unknown Action',
-            SourceURL: item.source_url || item.url || '#'
-          }));
+          const transformedData = aiRelatedData.map(item => {
+            // Extract country from implementers array
+            let country = 'Unknown';
+            if (item.implementers && item.implementers.length > 0) {
+              country = item.implementers[0].name;
+            }
+            
+            // Create a more detailed description if we have policy info
+            let fullDescription = item.description || 'No description available';
+            if (item.policy_area || item.policy_instrument) {
+              const policyInfo = [];
+              if (item.policy_area) policyInfo.push(`Policy Area: ${item.policy_area}`);
+              if (item.policy_instrument) policyInfo.push(`Policy Instrument: ${item.policy_instrument}`);
+              fullDescription = `${fullDescription}\n\n${policyInfo.join(' | ')}`;
+            }
+            
+            return {
+              country: country,
+              interventionName: item.title || 'Untitled Intervention',
+              interventionStatus: item.status || 'Unknown Status',
+              eventDate: item.date || 'Unknown Date',
+              eventDescription: fullDescription,
+              actionType: item.event_type || item.action_type || 'Unknown Action',
+              SourceURL: item.url || '#'
+            };
+          });
           
           console.log("Transformed data sample:", transformedData.slice(0, 3));
           console.log("Countries found:", [...new Set(transformedData.map(d => d.country))].slice(0, 20));
