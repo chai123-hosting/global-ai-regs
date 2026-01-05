@@ -813,10 +813,95 @@
       // Worldwide legislation data and loading
       const worldwideLegislationData = [];
       let isLoadingWorldwideData = false;
+      
+      // Cache settings
+      const CACHE_KEY = 'worldwideAILegislationData';
+      const CACHE_TIMESTAMP_KEY = 'worldwideAILegislationTimestamp';
+      const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
-      async function loadWorldwideData() {
-        if (isLoadingWorldwideData || worldwideLegislationData.length > 0) {
-          return; // Prevent duplicate loading
+      // Try to load cached data on page load
+      function loadCachedData() {
+        try {
+          const cachedData = localStorage.getItem(CACHE_KEY);
+          const cachedTimestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY);
+          
+          if (cachedData && cachedTimestamp) {
+            const timestamp = parseInt(cachedTimestamp);
+            const now = Date.now();
+            
+            // Check if cache is still valid (within 24 hours)
+            if (now - timestamp < CACHE_DURATION) {
+              const data = JSON.parse(cachedData);
+              worldwideLegislationData.push(...data);
+              console.log(`Loaded ${data.length} entries from cache (age: ${Math.round((now - timestamp) / 1000 / 60)} minutes)`);
+              return true;
+            } else {
+              console.log('Cache expired, will fetch fresh data');
+              // Clear expired cache
+              localStorage.removeItem(CACHE_KEY);
+              localStorage.removeItem(CACHE_TIMESTAMP_KEY);
+            }
+          }
+        } catch (error) {
+          console.error('Error loading cached data:', error);
+        }
+        return false;
+      }
+      
+      // Save data to cache
+      function saveCacheData(data) {
+        try {
+          localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+          localStorage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
+          console.log(`Cached ${data.length} entries`);
+        } catch (error) {
+          console.error('Error saving to cache:', error);
+        }
+      }
+
+      async function loadWorldwideData(forceRefresh = false) {
+        // Check if we already have data (either loaded from cache or previously fetched)
+        if (isLoadingWorldwideData) {
+          return; // Already loading
+        }
+        
+        if (worldwideLegislationData.length > 0 && !forceRefresh) {
+          // Data already loaded, just show it
+          const container = document.getElementById("worldwide-container");
+          const uniqueCountries = [...new Set(worldwideLegislationData.map(d => d.country))].sort();
+          container.innerHTML = `
+            <div class="success-message">
+              <strong>Data loaded from cache!</strong><br>
+              ${worldwideLegislationData.length} AI-related regulations from ${uniqueCountries.length} countries/regions available.<br>
+              Click on a country on the map to view specific regulations.<br><br>
+              <button onclick="refreshWorldwideData()" style="
+                display: inline-block;
+                outline: 0;
+                border: none;
+                cursor: pointer;
+                height: 40px;
+                padding: 12px 17px;
+                border-radius: 50px;
+                background-color: #1fd1bf;
+                color: white;
+                font-size: 16px;
+                font-weight: 500;
+                transition: background-color 0.3s ease;
+              "
+              onmouseover="this.style.backgroundColor='#19b8a8'"
+              onmouseout="this.style.backgroundColor='#1fd1bf'">
+                Refresh Data
+              </button>
+            </div>
+          `;
+          return;
+        }
+        
+        // If force refresh, clear existing data
+        if (forceRefresh) {
+          worldwideLegislationData.length = 0;
+          localStorage.removeItem(CACHE_KEY);
+          localStorage.removeItem(CACHE_TIMESTAMP_KEY);
         }
         
         isLoadingWorldwideData = true;
@@ -1032,11 +1117,33 @@
           
           worldwideLegislationData.push(...transformedData);
           
+          // Save to cache for future visits
+          saveCacheData(transformedData);
+          
           container.innerHTML = `
             <div class="success-message">
               <strong>Data loaded successfully!</strong><br>
               Loaded ${worldwideLegislationData.length} AI-related regulations from ${uniqueCountries.length} countries/regions.<br>
-              Click on a country on the map to view specific regulations.
+              Data cached for 24 hours.<br>
+              Click on a country on the map to view specific regulations.<br><br>
+              <button onclick="refreshWorldwideData()" style="
+                display: inline-block;
+                outline: 0;
+                border: none;
+                cursor: pointer;
+                height: 40px;
+                padding: 12px 17px;
+                border-radius: 50px;
+                background-color: #1fd1bf;
+                color: white;
+                font-size: 16px;
+                font-weight: 500;
+                transition: background-color 0.3s ease;
+              "
+              onmouseover="this.style.backgroundColor='#19b8a8'"
+              onmouseout="this.style.backgroundColor='#1fd1bf'">
+                Refresh Data
+              </button>
             </div>
           `;
           
@@ -1083,8 +1190,30 @@
           document.getElementById("us-link").classList.remove("active");
           if (worldwideLegislationData.length === 0 && !isLoadingWorldwideData) {
             loadWorldwideData();
+          } else if (worldwideLegislationData.length > 0) {
+            // Show cached data message
+            const container = document.getElementById("worldwide-container");
+            if (container.innerHTML === "") {
+              const uniqueCountries = [...new Set(worldwideLegislationData.map(d => d.country))].sort();
+              container.innerHTML = `
+                <div class="success-message">
+                  <strong>Data loaded from cache!</strong><br>
+                  ${worldwideLegislationData.length} AI-related regulations from ${uniqueCountries.length} countries/regions available.<br>
+                  Click on a country on the map to view specific regulations.
+                </div>
+              `;
+            }
           }
         });
+      
+      // Load cached data on page load
+      loadCachedData();
+      
+      // Global function to refresh worldwide data
+      window.refreshWorldwideData = function() {
+        console.log("Manually refreshing worldwide data...");
+        loadWorldwideData(true);
+      };
     </script>
   </body>
 </html>
